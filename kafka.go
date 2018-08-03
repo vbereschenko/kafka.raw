@@ -13,7 +13,7 @@ import (
 )
 
 var defaultHeaders = map[string]string{
-	"Content-type": "application/protobuf",
+	"Content-Type": "application/protobuf",
 }
 
 type kBroker struct {
