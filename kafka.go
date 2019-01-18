@@ -2,19 +2,15 @@
 package kafka_raw
 
 import (
+	"context"
 	"sync"
 
 	"github.com/Shopify/sarama"
-	"github.com/micro/go-log"
+	"github.com/google/uuid"
 	"github.com/micro/go-micro/broker"
-	"github.com/micro/go-micro/broker/codec/json"
-	"github.com/pborman/uuid"
+	"github.com/micro/go-micro/cmd"
 	sc "gopkg.in/bsm/sarama-cluster.v2"
 )
-
-var defaultHeaders = map[string]string{
-	"Content-Type": "application/protobuf",
-}
 
 type kBroker struct {
 	addrs []string
@@ -38,6 +34,10 @@ type publication struct {
 	c  *sc.Consumer
 	km *sarama.ConsumerMessage
 	m  *broker.Message
+}
+
+func init() {
+	cmd.DefaultBrokers["kafka"] = NewBroker
 }
 
 func (p *publication) Topic() string {
@@ -77,7 +77,7 @@ func (k *kBroker) Connect() error {
 		return nil
 	}
 
-	pconfig := sarama.NewConfig()
+	pconfig := k.getBrokerConfig()
 	// For implementation reasons, the SyncProducer requires
 	// `Producer.Return.Errors` and `Producer.Return.Successes`
 	// to be set to true in its configuration.
@@ -119,6 +119,17 @@ func (k *kBroker) Init(opts ...broker.Option) error {
 	for _, o := range opts {
 		o(&k.opts)
 	}
+	var cAddrs []string
+	for _, addr := range k.opts.Addrs {
+		if len(addr) == 0 {
+			continue
+		}
+		cAddrs = append(cAddrs, addr)
+	}
+	if len(cAddrs) == 0 {
+		cAddrs = []string{"127.0.0.1:9092"}
+	}
+	k.addrs = cAddrs
 	return nil
 }
 
@@ -135,10 +146,7 @@ func (k *kBroker) Publish(topic string, msg *broker.Message, opts ...broker.Publ
 }
 
 func (k *kBroker) getSaramaClusterClient(topic string) (*sc.Client, error) {
-	config := sc.NewConfig()
-
-	// TODO: make configurable offset as SubscriberOption
-	config.Config.Consumer.Offsets.Initial = sarama.OffsetNewest
+	config := k.getClusterConfig()
 
 	cs, err := sc.NewClient(k.addrs, config)
 	if err != nil {
@@ -154,7 +162,7 @@ func (k *kBroker) getSaramaClusterClient(topic string) (*sc.Client, error) {
 func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
 	opt := broker.SubscribeOptions{
 		AutoAck: true,
-		Queue:   uuid.NewUUID().String(),
+		Queue:   uuid.New().String(),
 	}
 
 	for _, o := range opts {
@@ -182,8 +190,12 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 				if sm == nil {
 					continue
 				}
+				var m broker.Message
+				if err := k.opts.Codec.Unmarshal(sm.Value, &m.Body); err != nil {
+					continue
+				}
 				if err := handler(&publication{
-					m:  &broker.Message{Body: sm.Value, Header: defaultHeaders},
+					m:  &m,
 					t:  sm.Topic,
 					c:  c,
 					km: sm,
@@ -198,13 +210,12 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 }
 
 func (k *kBroker) String() string {
-	return "kafka_raw"
+	return "kafka"
 }
 
 func NewBroker(opts ...broker.Option) broker.Broker {
 	options := broker.Options{
-		// default to json codec
-		Codec: json.NewCodec(),
+		Context: context.Background(),
 	}
 
 	for _, o := range opts {
@@ -226,4 +237,20 @@ func NewBroker(opts ...broker.Option) broker.Broker {
 		addrs: cAddrs,
 		opts:  options,
 	}
+}
+
+func (k *kBroker) getBrokerConfig() *sarama.Config {
+	if c, ok := k.opts.Context.Value(brokerConfigKey{}).(*sarama.Config); ok {
+		return c
+	}
+	return DefaultBrokerConfig
+}
+
+func (k *kBroker) getClusterConfig() *sc.Config {
+	if c, ok := k.opts.Context.Value(clusterConfigKey{}).(*sc.Config); ok {
+		return c
+	}
+	clusterConfig := DefaultClusterConfig
+	clusterConfig.Config.Consumer.Offsets.Initial = sarama.OffsetNewest
+	return clusterConfig
 }
