@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/Shopify/sarama"
+	"github.com/micro/go-log"
 	"github.com/google/uuid"
 	"github.com/micro/go-micro/broker"
 	"github.com/micro/go-micro/cmd"
