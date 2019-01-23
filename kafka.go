@@ -192,9 +192,7 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 					continue
 				}
 				var m broker.Message
-				if err := k.opts.Codec.Unmarshal(sm.Value, &m.Body); err != nil {
-					continue
-				}
+				m.Body = sm.Value
 				if err := handler(&publication{
 					m:  &m,
 					t:  sm.Topic,
