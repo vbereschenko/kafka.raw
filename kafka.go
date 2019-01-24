@@ -6,8 +6,8 @@ import (
 	"sync"
 
 	"github.com/Shopify/sarama"
-	"github.com/micro/go-log"
 	"github.com/google/uuid"
+	"github.com/micro/go-log"
 	"github.com/micro/go-micro/broker"
 	"github.com/micro/go-micro/cmd"
 	sc "gopkg.in/bsm/sarama-cluster.v2"
@@ -191,10 +191,14 @@ func (k *kBroker) Subscribe(topic string, handler broker.Handler, opts ...broker
 				if sm == nil {
 					continue
 				}
-				var m broker.Message
-				m.Body = sm.Value
+				var m = &broker.Message{
+					Body: sm.Value,
+					Header: map[string]string{
+						"Content-Type": "application/protobuf",
+					},
+				}
 				if err := handler(&publication{
-					m:  &m,
+					m:  m,
 					t:  sm.Topic,
 					c:  c,
 					km: sm,
